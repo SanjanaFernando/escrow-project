@@ -1,0 +1,20 @@
+{
+  "name": "smart-contract-fund-escrow",
+  "version": "1.0.0",
+  "description": "EC8204 Blockchain & Cyber Security - Smart Contract Fund Escrow Project",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:local": "hardhat run scripts/deploy.js --network localhost",
+    "node": "hardhat node"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.22.5",
+    "solidity-coverage": "^0.8.17"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2",
+    "dotenv": "^18.0.4"
+  }
+}
