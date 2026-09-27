@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Escrow Vault — Fund Escrow Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#11161d;
+    --panel:#171e27;
+    --panel-2:#1d2731;
+    --line:rgba(237,232,222,0.10);
+    --cream:#ede8de;
+    --cream-dim:#a9a49a;
+    --brass:#c9a227;
+    --brass-dim:#8f7420;
+    --teal:#4e9c82;
+    --rust:#c1543a;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--ink);
+    color:var(--cream);
+    font-family:'Inter',sans-serif;
+    min-height:100vh;
+    padding:48px 24px;
+  }
+  .wrap{max-width:980px;margin:0 auto;}
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:clamp(28px,4vw,40px);
+    margin:0 0 6px;
+    letter-spacing:-0.01em;
+  }
+  .subtitle{color:var(--cream-dim);margin:0 0 36px;font-size:15px;max-width:60ch;line-height:1.5;}
+  .grid{display:grid;grid-template-columns:1.1fr 1.4fr;gap:20px;}
+  @media (max-width:800px){.grid{grid-template-columns:1fr;}}
+  .card{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:26px;
+  }
+  .vault-visual{display:flex;flex-direction:column;align-items:center;text-align:center;gap:18px;}
+  .state-pill{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:7px 16px;border-radius:100px;
+    font-size:13px;font-weight:500;
+    background:var(--panel-2);border:1px solid var(--line);
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--brass);}
+  .amount{font-family:'Fraunces',serif;font-size:44px;font-weight:600;margin:4px 0 0;}
+  .amount-label{font-size:12px;color:var(--cream-dim);text-transform:uppercase;letter-spacing:0.08em;}
+  .row{
+    display:flex;justify-content:space-between;gap:12px;
+    padding:11px 0;border-bottom:1px solid var(--line);
+    font-size:13.5px;
+  }
+  .row:last-child{border-bottom:none;}
+  .row .k{color:var(--cream-dim);}
+  .row .v{font-family:'IBM Plex Mono',monospace;font-size:12.5px;text-align:right;word-break:break-all;}
+  .role-tabs{display:flex;gap:8px;margin-bottom:20px;}
+  .role-tab{
+    flex:1;padding:9px 0;text-align:center;border-radius:9px;
+    border:1px solid var(--line);background:var(--panel-2);
+    cursor:pointer;font-size:13px;font-weight:500;color:var(--cream-dim);
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .role-tab.active{border-color:var(--brass);color:var(--brass);}
+  .actions{display:flex;flex-direction:column;gap:10px;}
+  button{
+    font-family:'Inter',sans-serif;font-size:14px;font-weight:500;
+    padding:13px 18px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--cream);cursor:pointer;
+    transition:filter .15s ease;
+  }
+  button:hover{filter:brightness(1.15);}
+  button:disabled{opacity:0.35;cursor:not-allowed;}
+  button.primary{background:var(--brass);border-color:var(--brass);color:#20180a;font-weight:600;}
+  button.danger{border-color:var(--rust);color:var(--rust);background:transparent;}
+  input{
+    width:100%;padding:12px 14px;border-radius:9px;
+    border:1px solid var(--line);background:var(--panel-2);
+    color:var(--cream);font-family:'IBM Plex Mono',monospace;font-size:13px;
+    margin-bottom:10px;
+  }
+  input::placeholder{color:var(--cream-dim);}
+  .setup{margin-bottom:18px;}
+  .setup label{font-size:12px;color:var(--cream-dim);display:block;margin-bottom:6px;}
+  .log{
+    margin-top:20px;max-height:160px;overflow-y:auto;
+    font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--cream-dim);
+    display:flex;flex-direction:column-reverse;gap:6px;
+  }
+  .log div{border-left:2px solid var(--line);padding-left:10px;}
+  .connect-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;flex-wrap:wrap;gap:12px;}
+  .account{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--brass);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="connect-bar">
+    <div>
+      <h1>Escrow Vault</h1>
+      <p class="subtitle">A three‑party fund escrow — buyer deposits, seller delivers, arbiter breaks ties. Built for EC8204: Blockchain &amp; Cyber Security.</p>
+    </div>
+    <div style="text-align:right;">
+      <button class="primary" id="connectBtn">Connect Wallet</button>
+      <div class="account" id="accountDisplay"></div>
+    </div>
+  </div>
+
+  <div class="card setup">
+    <label>Deployed contract address (from `npx hardhat run scripts/deploy.js`)</label>
+    <input id="contractAddress" placeholder="0x..." />
+    <button id="loadBtn">Load Contract</button>
+  </div>
+
+  <div class="grid">
+    <div class="card vault-visual">
+      <span class="state-pill"><span class="dot"></span><span id="stateText">Not loaded</span></span>
+      <div>
+        <div class="amount-label">Held in Escrow</div>
+        <div class="amount" id="amountText">— ETH</div>
+      </div>
+      <div style="width:100%;text-align:left;margin-top:10px;">
+        <div class="row"><span class="k">Buyer</span><span class="v" id="buyerAddr">—</span></div>
+        <div class="row"><span class="k">Seller</span><span class="v" id="sellerAddr">—</span></div>
+        <div class="row"><span class="k">Arbiter</span><span class="v" id="arbiterAddr">—</span></div>
+        <div class="row"><span class="k">Delivery deadline</span><span class="v" id="deadlineText">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="role-tabs">
+        <div class="role-tab active" data-role="buyer">Buyer</div>
+        <div class="role-tab" data-role="seller">Seller</div>
+        <div class="role-tab" data-role="arbiter">Arbiter</div>
+      </div>
+
+      <div class="actions" id="buyerActions">
+        <input id="depositAmount" placeholder="Amount in ETH, e.g. 1.0" />
+        <button class="primary" id="depositBtn">Deposit Funds</button>
+        <button id="confirmBtn">Confirm Delivery (release to seller)</button>
+        <button class="danger" id="disputeBtnBuyer">Raise Dispute</button>
+        <button class="danger" id="refundBtn">Reclaim After Deadline</button>
+      </div>
+
+      <div class="actions" id="sellerActions" style="display:none;">
+        <button class="danger" id="disputeBtnSeller">Raise Dispute</button>
+        <p style="color:var(--cream-dim);font-size:13px;">Seller has no direct release power — this enforces that funds only move on buyer confirmation, arbiter ruling, or timeout.</p>
+      </div>
+
+      <div class="actions" id="arbiterActions" style="display:none;">
+        <button class="primary" id="resolveSellerBtn">Resolve: Pay Seller</button>
+        <button class="danger" id="resolveBuyerBtn">Resolve: Refund Buyer</button>
+      </div>
+
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ESCROW_ABI = [
+  "function buyer() view returns (address)",
+  "function seller() view returns (address)",
+  "function arbiter() view returns (address)",
+  "function amount() view returns (uint256)",
+  "function deliveryDeadline() view returns (uint256)",
+  "function currentState() view returns (uint8)",
+  "function deposit() payable",
+  "function confirmDelivery()",
+  "function raiseDispute()",
+  "function resolveDispute(bool releaseToSeller)",
+  "function refundAfterTimeout()",
+  "event FundsDeposited(address indexed buyer, uint256 amount, uint256 deliveryDeadline)",
+  "event DeliveryConfirmed(address indexed buyer, address indexed seller, uint256 amount)",
+  "event DisputeRaised(address indexed raisedBy)",
+  "event DisputeResolved(address indexed arbiter, bool releasedToSeller, uint256 amount)",
+  "event RefundedAfterTimeout(address indexed buyer, uint256 amount)"
+];
+const STATE_NAMES = ["Awaiting Payment","Awaiting Delivery","Complete","Disputed","Refunded"];
+
+let provider, signer, escrow;
+
+function logLine(text){
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  line.textContent = `${new Date().toLocaleTimeString()} — ${text}`;
+  el.prepend(line);
+}
+
+document.getElementById('connectBtn').onclick = async () => {
+  if(!window.ethereum){ logLine('No wallet found. Install MetaMask.'); return; }
+  try{
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    document.getElementById('accountDisplay').textContent = await signer.getAddress();
+    logLine('Wallet connected.');
+  }catch(e){ logLine('Connection failed: ' + e.message); }
+};
+
+document.getElementById('loadBtn').onclick = async () => {
+  const addr = document.getElementById('contractAddress').value.trim();
+  if(!addr){ logLine('Enter a contract address first.'); return; }
+  if(!signer){ logLine('Connect your wallet first.'); return; }
+  try{
+    escrow = new ethers.Contract(addr, ESCROW_ABI, signer);
+    await refresh();
+    logLine('Contract loaded at ' + addr);
+  }catch(e){ logLine('Load failed: ' + e.message); }
+};
+
+async function refresh(){
+  if(!escrow) return;
+  const [b, s, a, amt, deadline, state] = await Promise.all([
+    escrow.buyer(), escrow.seller(), escrow.arbiter(),
+    escrow.amount(), escrow.deliveryDeadline(), escrow.currentState()
+  ]);
+  document.getElementById('buyerAddr').textContent = b;
+  document.getElementById('sellerAddr').textContent = s;
+  document.getElementById('arbiterAddr').textContent = a;
+  document.getElementById('amountText').textContent = ethers.formatEther(amt) + ' ETH';
+  document.getElementById('deadlineText').textContent = deadline > 0n
+    ? new Date(Number(deadline) * 1000).toLocaleString() : '—';
+  document.getElementById('stateText').textContent = STATE_NAMES[Number(state)];
+}
+
+document.getElementById('depositBtn').onclick = async () => {
+  const val = document.getElementById('depositAmount').value;
+  try{
+    const tx = await escrow.deposit({ value: ethers.parseEther(val || '0') });
+    logLine('Deposit sent, waiting for confirmation...');
+    await tx.wait();
+    logLine('Deposit confirmed.');
+    refresh();
+  }catch(e){ logLine('Deposit failed: ' + (e.reason || e.message)); }
+};
+
+document.getElementById('confirmBtn').onclick = () => runTx(() => escrow.confirmDelivery(), 'Delivery confirmed, funds released to seller.');
+document.getElementById('disputeBtnBuyer').onclick = () => runTx(() => escrow.raiseDispute(), 'Dispute raised.');
+document.getElementById('disputeBtnSeller').onclick = () => runTx(() => escrow.raiseDispute(), 'Dispute raised.');
+document.getElementById('refundBtn').onclick = () => runTx(() => escrow.refundAfterTimeout(), 'Refunded after timeout.');
+document.getElementById('resolveSellerBtn').onclick = () => runTx(() => escrow.resolveDispute(true), 'Dispute resolved — seller paid.');
+document.getElementById('resolveBuyerBtn').onclick = () => runTx(() => escrow.resolveDispute(false), 'Dispute resolved — buyer refunded.');
+
+async function runTx(fn, successMsg){
+  try{
+    const tx = await fn();
+    logLine('Transaction sent, waiting...');
+    await tx.wait();
+    logLine(successMsg);
+    refresh();
+  }catch(e){ logLine('Failed: ' + (e.reason || e.message)); }
+}
+
+document.querySelectorAll('.role-tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.role-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('buyerActions').style.display = tab.dataset.role === 'buyer' ? 'flex' : 'none';
+    document.getElementById('sellerActions').style.display = tab.dataset.role === 'seller' ? 'flex' : 'none';
+    document.getElementById('arbiterActions').style.display = tab.dataset.role === 'arbiter' ? 'flex' : 'none';
+  };
+});
+</script>
+</body>
+</html>
