@@ -19,6 +19,7 @@
     --brass-dim:#8f7420;
     --teal:#4e9c82;
     --rust:#c1543a;
+    --gold-soft:rgba(201,162,39,0.14);
     --radius:14px;
   }
   *{box-sizing:border-box;}
@@ -100,7 +101,28 @@
   }
   .log div{border-left:2px solid var(--line);padding-left:10px;}
   .connect-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px;flex-wrap:wrap;gap:12px;}
-  .account{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--brass);}
+  .account{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--brass);display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px;}
+  .wallet-meta{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;color:var(--cream-dim);font-size:12px;}
+  .network-badge,.balance-badge{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:6px 10px;}
+  .network-badge{color:var(--teal);}
+  .copy-btn{padding:5px 8px;font-size:11px;border-radius:7px;}
+  .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+  .summary-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;min-width:0;}
+  .summary-label{color:var(--cream-dim);font-size:11px;text-transform:uppercase;letter-spacing:.08em;}
+  .summary-value{font-family:'IBM Plex Mono',monospace;font-size:16px;margin-top:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .progress-card{margin-bottom:20px;}
+  .progress-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;}
+  .section-title{font-size:14px;font-weight:600;margin:0;}
+  .progress-track{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;position:relative;}
+  .progress-step{position:relative;text-align:center;color:var(--cream-dim);font-size:11px;z-index:1;}
+  .progress-step::before{content:'';display:block;width:20px;height:20px;margin:0 auto 8px;border-radius:50%;background:var(--panel-2);border:2px solid var(--line);}
+  .progress-step:not(:last-child)::after{content:'';position:absolute;height:2px;background:var(--line);left:calc(50% + 12px);right:calc(-50% + 12px);top:9px;z-index:-1;}
+  .progress-step.active,.progress-step.complete{color:var(--cream);}
+  .progress-step.active::before{background:var(--brass);border-color:var(--brass);box-shadow:0 0 0 5px var(--gold-soft);}
+  .progress-step.complete::before{background:var(--teal);border-color:var(--teal);}
+  .progress-step.complete:not(:last-child)::after{background:var(--teal);}
+  @media (max-width:800px){.summary-grid{grid-template-columns:repeat(2,1fr);}.progress-step{font-size:10px;}}
+  @media (max-width:480px){.summary-grid{gap:8px;}.summary-card{padding:12px;}.progress-step{font-size:9px;}.progress-step::before{width:16px;height:16px;}.progress-step:not(:last-child)::after{top:7px;}}
 </style>
 </head>
 <body>
@@ -112,14 +134,32 @@
     </div>
     <div style="text-align:right;">
       <button class="primary" id="connectBtn">Connect Wallet</button>
-      <div class="account" id="accountDisplay"></div>
+      <div class="account"><span id="accountDisplay">Not connected</span><button class="copy-btn" id="copyBtn" title="Copy wallet address" style="display:none;">Copy</button></div>
+      <div class="wallet-meta"><span class="network-badge" id="networkDisplay">Network: —</span><span class="balance-badge" id="balanceDisplay">Balance: —</span><button class="copy-btn" id="switchNetworkBtn" style="display:none;">Use Localhost</button></div>
     </div>
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-card"><div class="summary-label">Escrow balance</div><div class="summary-value" id="summaryAmount">— ETH</div></div>
+    <div class="summary-card"><div class="summary-label">Current state</div><div class="summary-value" id="summaryState">Not loaded</div></div>
+    <div class="summary-card"><div class="summary-label">Delivery deadline</div><div class="summary-value" id="summaryDeadline">—</div></div>
+    <div class="summary-card"><div class="summary-label">Your role</div><div class="summary-value" id="summaryRole">—</div></div>
   </div>
 
   <div class="card setup">
     <label>Deployed contract address (from `npx hardhat run scripts/deploy.js`)</label>
     <input id="contractAddress" placeholder="0x..." />
     <button id="loadBtn">Load Contract</button>
+  </div>
+
+  <div class="card progress-card">
+    <div class="progress-head"><h2 class="section-title">Escrow progress</h2><span class="state-pill"><span class="dot"></span><span id="progressState">Not loaded</span></span></div>
+    <div class="progress-track">
+      <div class="progress-step" data-step="0">Awaiting payment</div>
+      <div class="progress-step" data-step="1">Awaiting delivery</div>
+      <div class="progress-step" data-step="2">Complete</div>
+      <div class="progress-step" data-step="3">Dispute / refund</div>
+    </div>
   </div>
 
   <div class="grid">
@@ -197,16 +237,58 @@ function logLine(text){
   el.prepend(line);
 }
 
+function shortAddress(address){ return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'; }
+
+async function updateWalletMeta(){
+  if(!provider || !signer) return;
+  const address = await signer.getAddress();
+  const [network, balance] = await Promise.all([provider.getNetwork(), provider.getBalance(address)]);
+  document.getElementById('accountDisplay').textContent = shortAddress(address);
+  document.getElementById('networkDisplay').textContent = `Network: ${network.chainId === 31337n ? 'Localhost 31337' : network.name}`;
+  document.getElementById('balanceDisplay').textContent = `Balance: ${Number(ethers.formatEther(balance)).toFixed(3)} ETH`;
+  document.getElementById('copyBtn').style.display = 'inline-block';
+  document.getElementById('switchNetworkBtn').style.display = network.chainId === 31337n ? 'none' : 'inline-block';
+  document.getElementById('summaryRole').textContent = escrow ? await detectRole(address) : 'Connected';
+}
+
+async function detectRole(address){
+  if(!escrow) return 'Connected';
+  const [buyer, seller, arbiter] = await Promise.all([escrow.buyer(), escrow.seller(), escrow.arbiter()]);
+  if(address.toLowerCase() === buyer.toLowerCase()) return 'Buyer';
+  if(address.toLowerCase() === seller.toLowerCase()) return 'Seller';
+  if(address.toLowerCase() === arbiter.toLowerCase()) return 'Arbiter';
+  return 'Observer';
+}
+
 document.getElementById('connectBtn').onclick = async () => {
   if(!window.ethereum){ logLine('No wallet found. Install MetaMask.'); return; }
   try{
     provider = new ethers.BrowserProvider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     signer = await provider.getSigner();
-    document.getElementById('accountDisplay').textContent = await signer.getAddress();
+    await updateWalletMeta();
     logLine('Wallet connected.');
   }catch(e){ logLine('Connection failed: ' + e.message); }
 };
+
+document.getElementById('copyBtn').onclick = async () => {
+  if(!signer) return;
+  await navigator.clipboard.writeText(await signer.getAddress());
+  logLine('Wallet address copied.');
+};
+
+document.getElementById('switchNetworkBtn').onclick = async () => {
+  try{
+    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x7A69' }] });
+  }catch(e){
+    if(e.code === 4902){
+      await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [{ chainId: '0x7A69', chainName: 'Hardhat Localhost', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: ['http://127.0.0.1:8545'] }] });
+    } else logLine('Network switch failed: ' + e.message);
+  }
+};
+
+window.ethereum?.on('accountsChanged', async () => { signer = await provider.getSigner(); await updateWalletMeta(); });
+window.ethereum?.on('chainChanged', () => window.location.reload());
 
 document.getElementById('loadBtn').onclick = async () => {
   const addr = document.getElementById('contractAddress').value.trim();
@@ -215,6 +297,7 @@ document.getElementById('loadBtn').onclick = async () => {
   try{
     escrow = new ethers.Contract(addr, ESCROW_ABI, signer);
     await refresh();
+    await updateWalletMeta();
     logLine('Contract loaded at ' + addr);
   }catch(e){ logLine('Load failed: ' + e.message); }
 };
@@ -232,6 +315,16 @@ async function refresh(){
   document.getElementById('deadlineText').textContent = deadline > 0n
     ? new Date(Number(deadline) * 1000).toLocaleString() : '—';
   document.getElementById('stateText').textContent = STATE_NAMES[Number(state)];
+  document.getElementById('summaryAmount').textContent = ethers.formatEther(amt) + ' ETH';
+  document.getElementById('summaryState').textContent = STATE_NAMES[Number(state)];
+  document.getElementById('summaryDeadline').textContent = deadline > 0n ? new Date(Number(deadline) * 1000).toLocaleDateString() : '—';
+  document.getElementById('progressState').textContent = STATE_NAMES[Number(state)];
+  document.querySelectorAll('.progress-step').forEach(step => {
+    const stepNumber = Number(step.dataset.step);
+    step.classList.toggle('complete', Number(state) > stepNumber && stepNumber < 2);
+    step.classList.toggle('active', Number(state) === stepNumber || (Number(state) >= 3 && stepNumber === 3));
+  });
+  if(signer) document.getElementById('summaryRole').textContent = await detectRole(await signer.getAddress());
 }
 
 document.getElementById('depositBtn').onclick = async () => {
