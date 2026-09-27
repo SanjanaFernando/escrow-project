@@ -1,0 +1,8 @@
+node_modules/
+.next/
+dist/
+artifacts/
+cache/
+coverage/
+.env
+.env.local
