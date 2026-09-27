@@ -1,0 +1,18 @@
+# Environment variables — NEVER commit private keys or API keys
+.env
+
+# Hardhat build artifacts & cache
+artifacts/
+cache/
+typechain-types/
+
+# Coverage reports
+coverage/
+coverage.json
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db

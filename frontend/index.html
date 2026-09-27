@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Escrow Vault — Smart Contract Fund Escrow | EC8204</title>
+<meta name="description" content="Trustless three-party fund escrow using a Solidity smart contract. Buyer deposits, seller delivers, 2-of-3 arbiters resolve disputes. EC8204 Blockchain & Cyber Security project." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<style>
+  :root {
+    --ink:      #0f1419;
+    --panel:    #161d27;
+    --panel-2:  #1c2533;
+    --panel-3:  #222e3e;
+    --line:     rgba(200,210,230,0.10);
+    --cream:    #e8edf5;
+    --cream-dim:#7a8799;
+    --brass:    #c9a227;
+    --brass-glow: rgba(201,162,39,0.18);
+    --teal:     #3ea88a;
+    --rust:     #c0513a;
+    --violet:   #7c5cbf;
+    --radius:   14px;
+    --radius-sm:9px;
+    --shadow: 0 8px 32px rgba(0,0,0,0.45);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+
+  body {
+    background: var(--ink);
+    color: var(--cream);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 44px 20px 80px;
+    background-image:
+      radial-gradient(ellipse 60% 40% at 70% -10%, rgba(201,162,39,0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 35% at 10% 90%,  rgba(62,168,138,0.06) 0%, transparent 55%);
+  }
+
+  .wrap { max-width: 1040px; margin: 0 auto; }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  .top-bar {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 36px; flex-wrap: wrap; gap: 16px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(26px, 4vw, 40px);
+    font-weight: 600; letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #e8edf5 30%, #c9a227);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .subtitle {
+    color: var(--cream-dim); font-size: 14px;
+    max-width: 54ch; line-height: 1.6; margin-top: 5px;
+  }
+  .connect-col { text-align: right; flex-shrink: 0; }
+  .account-pill {
+    display: inline-block; margin-top: 8px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;
+    color: var(--brass); background: var(--brass-glow);
+    border: 1px solid rgba(201,162,39,0.3);
+    padding: 5px 12px; border-radius: 100px;
+  }
+
+  /* ── Setup bar ───────────────────────────────────────────────────────── */
+  .setup-bar {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px 22px;
+    display: flex; gap: 12px; align-items: flex-end;
+    margin-bottom: 22px; flex-wrap: wrap;
+  }
+  .setup-bar .field { flex: 1; min-width: 220px; }
+  .setup-bar label { font-size: 11px; color: var(--cream-dim); display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.07em; }
+
+  /* ── Main grid ───────────────────────────────────────────────────────── */
+  .grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 18px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+
+  /* ── Cards ───────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 24px;
+    box-shadow: var(--shadow);
+  }
+  .card-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--cream-dim); margin-bottom: 18px;
+  }
+
+  /* ── Vault visual ────────────────────────────────────────────────────── */
+  .vault { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
+  .state-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 16px; border-radius: 100px;
+    font-size: 12.5px; font-weight: 500;
+    background: var(--panel-2); border: 1px solid var(--line);
+    transition: border-color .3s;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); box-shadow: 0 0 8px var(--brass); }
+  .dot.teal  { background: var(--teal);   box-shadow: 0 0 8px var(--teal); }
+  .dot.rust  { background: var(--rust);   box-shadow: 0 0 8px var(--rust); }
+  .dot.violet{ background: var(--violet); box-shadow: 0 0 8px var(--violet); }
+
+  .amount-label { font-size: 11px; color: var(--cream-dim); text-transform: uppercase; letter-spacing: 0.09em; }
+  .amount { font-family: 'Fraunces', serif; font-size: 42px; font-weight: 600; line-height: 1; margin: 4px 0; }
+
+  /* info rows */
+  .info-row {
+    width: 100%; display: flex; justify-content: space-between; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--line);
+    font-size: 12.5px; text-align: left;
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .k { color: var(--cream-dim); flex-shrink: 0; }
+  .info-row .v { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; text-align: right; word-break: break-all; color: var(--cream); }
+
+  /* ── State diagram ───────────────────────────────────────────────────── */
+  .state-diagram {
+    width: 100%; margin-top: 10px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 4px; flex-wrap: wrap;
+  }
+  .sd-node {
+    padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 500;
+    border: 1px solid var(--line); color: var(--cream-dim);
+    background: var(--panel-2); transition: all .3s;
+    white-space: nowrap;
+  }
+  .sd-node.active {
+    border-color: var(--brass); color: var(--brass);
+    background: var(--brass-glow); box-shadow: 0 0 12px var(--brass-glow);
+  }
+  .sd-arrow { color: var(--cream-dim); font-size: 11px; }
+
+  /* ── Role tabs ───────────────────────────────────────────────────────── */
+  .role-tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .role-tab {
+    flex: 1; padding: 9px 0; text-align: center;
+    border-radius: var(--radius-sm); border: 1px solid var(--line);
+    background: var(--panel-2); cursor: pointer;
+    font-size: 12.5px; font-weight: 500; color: var(--cream-dim);
+    transition: all .2s;
+  }
+  .role-tab:hover { color: var(--cream); border-color: rgba(200,210,230,0.25); }
+  .role-tab.active-buyer   { border-color: var(--teal);   color: var(--teal);   background: rgba(62,168,138,0.1); }
+  .role-tab.active-seller  { border-color: var(--rust);   color: var(--rust);   background: rgba(192,81,58,0.1); }
+  .role-tab.active-arbiter { border-color: var(--violet); color: var(--violet); background: rgba(124,92,191,0.1); }
+
+  /* ── Actions ─────────────────────────────────────────────────────────── */
+  .actions { display: flex; flex-direction: column; gap: 10px; }
+  .actions-hint { font-size: 12px; color: var(--cream-dim); line-height: 1.5; padding: 10px 0; }
+
+  /* ── Vote bar (arbiters) ─────────────────────────────────────────────── */
+  .vote-bar-wrap { margin-bottom: 4px; }
+  .vote-bar-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--cream-dim); margin-bottom: 5px; }
+  .vote-bar-track { height: 6px; background: var(--panel-3); border-radius: 3px; overflow: hidden; }
+  .vote-bar-fill { height: 100%; background: linear-gradient(90deg, var(--teal), var(--brass)); border-radius: 3px; transition: width .5s; }
+
+  /* ── Inputs ──────────────────────────────────────────────────────────── */
+  input {
+    width: 100%; padding: 11px 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--cream); font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+    transition: border-color .2s;
+  }
+  input:focus { outline: none; border-color: rgba(201,162,39,0.5); }
+  input::placeholder { color: var(--cream-dim); }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+  button {
+    font-family: 'Inter', sans-serif; font-size: 13.5px; font-weight: 500;
+    padding: 11px 18px; border-radius: var(--radius-sm);
+    border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--cream); cursor: pointer;
+    transition: filter .15s, transform .1s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.2); transform: translateY(-1px); }
+  button:active:not(:disabled){ transform: translateY(0); }
+  button:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+  button.primary { background: var(--brass); border-color: var(--brass); color: #1a1200; font-weight: 600; }
+  button.danger  { border-color: var(--rust);   color: var(--rust);   background: rgba(192,81,58,0.08); }
+  button.violet  { border-color: var(--violet); color: var(--violet); background: rgba(124,92,191,0.1); }
+  button.teal    { border-color: var(--teal);   color: var(--teal);   background: rgba(62,168,138,0.1); }
+
+  /* ── Activity log ────────────────────────────────────────────────────── */
+  .log-wrap { margin-top: 18px; }
+  .log-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--cream-dim); margin-bottom: 8px; }
+  .log {
+    max-height: 150px; overflow-y: auto;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--cream-dim);
+    display: flex; flex-direction: column-reverse; gap: 5px;
+  }
+  .log div { border-left: 2px solid var(--line); padding-left: 10px; line-height: 1.4; }
+  .log div.ok   { border-left-color: var(--teal); }
+  .log div.warn { border-left-color: var(--rust); }
+
+  /* ── Balances strip ──────────────────────────────────────────────────── */
+  .balances {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    margin-top: 18px;
+  }
+  .balance-card {
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: var(--radius-sm); padding: 12px;
+    font-size: 11px;
+  }
+  .balance-card .bc-label { color: var(--cream-dim); margin-bottom: 4px; }
+  .balance-card .bc-val { font-family: 'Fraunces', serif; font-size: 18px; color: var(--cream); }
+
+  /* ── Tx history ──────────────────────────────────────────────────────── */
+  .tx-table-wrap { margin-top: 18px; }
+  .tx-table-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--cream-dim); margin-bottom: 8px; }
+  .tx-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .tx-table th { text-align: left; color: var(--cream-dim); font-weight: 500; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  .tx-table td { padding: 7px 8px; border-bottom: 1px solid rgba(200,210,230,0.05); font-family: 'IBM Plex Mono', monospace; font-size: 11px; vertical-align: middle; }
+  .tx-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; background: var(--panel-3); }
+  .tx-badge.deposited  { color: var(--teal); }
+  .tx-badge.confirmed  { color: var(--brass); }
+  .tx-badge.disputed   { color: var(--rust); }
+  .tx-badge.resolved   { color: var(--violet); }
+  .tx-badge.refunded   { color: var(--cream-dim); }
+  .tx-badge.vote       { color: var(--violet); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ── Header ───────────────────────────────────────────────────────── -->
+  <div class="top-bar">
+    <div>
+      <h1>Escrow Vault</h1>
+      <p class="subtitle">Trustless three-party fund escrow — buyer deposits, seller delivers,
+        2-of-3 arbiters resolve disputes. Built for EC8204: Blockchain &amp; Cyber Security.</p>
+    </div>
+    <div class="connect-col">
+      <button class="primary" id="connectBtn">Connect Wallet</button>
+      <div class="account-pill" id="accountDisplay" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ── Contract setup ───────────────────────────────────────────────── -->
+  <div class="setup-bar">
+    <div class="field">
+      <label>Deployed contract address</label>
+      <input id="contractAddress" value="0xAa565E4b6a06852d4D1690DaEe34C29C734E9B66" placeholder="0x…" />
+    </div>
+    <button id="loadBtn" style="flex-shrink:0; padding:11px 22px;">Load Contract</button>
+  </div>
+
+  <!-- ── Main grid ─────────────────────────────────────────────────────── -->
+  <div class="grid">
+
+    <!-- Left: Vault status panel -->
+    <div class="card">
+      <div class="card-title">Vault Status</div>
+      <div class="vault">
+        <div class="state-pill" id="statePill">
+          <span class="dot" id="stateDot"></span>
+          <span id="stateText">Not loaded</span>
+        </div>
+        <div>
+          <div class="amount-label">Held in Escrow</div>
+          <div class="amount" id="amountText">— ETH</div>
+        </div>
+
+        <!-- State diagram -->
+        <div class="state-diagram">
+          <span class="sd-node" id="sd0">Awaiting Payment</span>
+          <span class="sd-arrow">→</span>
+          <span class="sd-node" id="sd1">Awaiting Delivery</span>
+          <span class="sd-arrow">→</span>
+          <span class="sd-node" id="sd2">Complete</span>
+          <span class="sd-arrow">/</span>
+          <span class="sd-node" id="sd3">Disputed</span>
+          <span class="sd-arrow">/</span>
+          <span class="sd-node" id="sd4">Refunded</span>
+        </div>
+
+        <!-- Info rows -->
+        <div style="width:100%; margin-top:8px;">
+          <div class="info-row"><span class="k">Buyer</span><span class="v" id="buyerAddr">—</span></div>
+          <div class="info-row"><span class="k">Seller</span><span class="v" id="sellerAddr">—</span></div>
+          <div class="info-row"><span class="k">Arbiter 1</span><span class="v" id="arbiter1Addr">—</span></div>
+          <div class="info-row"><span class="k">Arbiter 2</span><span class="v" id="arbiter2Addr">—</span></div>
+          <div class="info-row"><span class="k">Arbiter 3</span><span class="v" id="arbiter3Addr">—</span></div>
+          <div class="info-row"><span class="k">Arbiter Fee</span><span class="v" id="feeText">—</span></div>
+          <div class="info-row"><span class="k">Deadline</span><span class="v" id="deadlineText">—</span></div>
+        </div>
+
+        <!-- Arbiter vote progress (shown during DISPUTED) -->
+        <div class="vote-bar-wrap" id="voteBarWrap" style="width:100%; display:none;">
+          <div class="vote-bar-labels">
+            <span id="voteForSellerCount">Seller: 0</span>
+            <span style="color:var(--cream-dim)">2-of-3 vote</span>
+            <span id="voteForBuyerCount">Buyer: 0</span>
+          </div>
+          <div class="vote-bar-track">
+            <div class="vote-bar-fill" id="voteBarFill" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live balances -->
+      <div class="balances" id="balancesWrap" style="display:none;">
+        <div class="balance-card">
+          <div class="bc-label">Buyer ETH</div>
+          <div class="bc-val" id="buyerBal">—</div>
+        </div>
+        <div class="balance-card">
+          <div class="bc-label">Seller ETH</div>
+          <div class="bc-val" id="sellerBal">—</div>
+        </div>
+        <div class="balance-card">
+          <div class="bc-label">Contract ETH</div>
+          <div class="bc-val" id="contractBal">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Actions panel -->
+    <div class="card">
+      <div class="card-title">Actions</div>
+
+      <div class="role-tabs">
+        <div class="role-tab" data-role="buyer"   id="tabBuyer">🧑 Buyer</div>
+        <div class="role-tab" data-role="seller"  id="tabSeller">🏭 Seller</div>
+        <div class="role-tab" data-role="arbiter" id="tabArbiter">⚖️ Arbiter</div>
+      </div>
+
+      <!-- Buyer actions -->
+      <div class="actions" id="buyerActions" style="display:none;">
+        <input id="depositAmount" placeholder="Amount in ETH  e.g. 1.0" />
+        <button class="primary" id="depositBtn">💰 Deposit Funds</button>
+        <button class="teal"    id="confirmBtn">✅ Confirm Delivery (release to seller)</button>
+        <button class="danger"  id="disputeBtnBuyer">⚠️ Raise Dispute</button>
+        <button class="danger"  id="refundBtn">⏱ Reclaim After Deadline</button>
+      </div>
+
+      <!-- Seller actions -->
+      <div class="actions" id="sellerActions" style="display:none;">
+        <button class="danger" id="disputeBtnSeller">⚠️ Raise Dispute</button>
+        <p class="actions-hint">
+          The seller has no direct release power — funds only move on buyer
+          confirmation, a 2-of-3 arbiter ruling, or a timeout refund.
+          This design prevents seller-side fraud.
+        </p>
+      </div>
+
+      <!-- Arbiter actions -->
+      <div class="actions" id="arbiterActions" style="display:none;">
+        <p class="actions-hint" id="voteStatusMsg">
+          A dispute is active. Cast your binding vote below.<br>
+          Resolution triggers automatically on 2-of-3 majority.
+        </p>
+        <div id="alreadyVotedMsg" style="display:none; color:var(--cream-dim); font-size:12.5px; padding:8px 0;">
+          ✅ You have already cast your vote this session.
+        </div>
+        <button class="violet" id="voteSellerBtn">⚖️ Vote: Release to Seller</button>
+        <button class="danger" id="voteBuyerBtn">⚖️ Vote: Refund Buyer</button>
+      </div>
+
+      <!-- Log -->
+      <div class="log-wrap">
+        <div class="log-title">Activity Log</div>
+        <div class="log" id="log"></div>
+      </div>
+
+      <!-- Transaction history table -->
+      <div class="tx-table-wrap" id="txTableWrap" style="display:none;">
+        <div class="tx-title tx-table-title">On-Chain Event History</div>
+        <table class="tx-table">
+          <thead><tr><th>Block</th><th>Event</th><th>Amount</th><th>Detail</th></tr></thead>
+          <tbody id="txTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─── ABI (matches enhanced Escrow.sol with 2-of-3 arbiter voting) ──────────────
+const ESCROW_ABI = [
+  // State variables
+  "function buyer() view returns (address)",
+  "function seller() view returns (address)",
+  "function arbiters(uint256) view returns (address)",
+  "function isArbiter(address) view returns (bool)",
+  "function hasVoted(address) view returns (bool)",
+  "function votesForSeller() view returns (uint8)",
+  "function votesForBuyer() view returns (uint8)",
+  "function amount() view returns (uint256)",
+  "function deliveryDeadline() view returns (uint256)",
+  "function deliveryPeriod() view returns (uint256)",
+  "function arbiterFeeBps() view returns (uint256)",
+  "function currentState() view returns (uint8)",
+  "function ARBITER_COUNT() view returns (uint8)",
+  // Actions
+  "function deposit() payable",
+  "function confirmDelivery()",
+  "function raiseDispute()",
+  "function castVote(bool voteForSeller)",
+  "function refundAfterTimeout()",
+  // Views
+  "function getDetails() view returns (address,address,address[3],uint256,uint256,uint8,uint8,uint8)",
+  "function isRegisteredArbiter(address) view returns (bool)",
+  // Events
+  "event FundsDeposited(address indexed buyer, uint256 amount, uint256 deliveryDeadline)",
+  "event DeliveryConfirmed(address indexed buyer, address indexed seller, uint256 amount)",
+  "event DisputeRaised(address indexed raisedBy)",
+  "event ArbiterVoteCast(address indexed arbiter, bool voteForSeller, uint8 votesForSeller, uint8 votesForBuyer)",
+  "event DisputeResolved(bool releasedToSeller, uint256 winnerPayout, uint256 totalArbiterFee)",
+  "event ArbiterFeePaid(address indexed arbiter, uint256 fee)",
+  "event RefundedAfterTimeout(address indexed buyer, uint256 amount)"
+];
+
+const STATE_LABELS = ["Awaiting Payment","Awaiting Delivery","Complete","Disputed","Refunded"];
+const STATE_DOT_CLASS = ["","teal","teal","rust",""];
+
+let provider, signer, escrow, myAddress;
+let activeRole = null;
+
+// ─── Utils ──────────────────────────────────────────────────────────────────
+function short(addr) { return addr ? addr.slice(0,6)+"…"+addr.slice(-4) : "—"; }
+function fmtEth(wei) { return parseFloat(ethers.formatEther(wei)).toFixed(4) + " ETH"; }
+
+function logLine(text, type = "") {
+  const el = document.getElementById("log");
+  const d = document.createElement("div");
+  if (type) d.classList.add(type);
+  d.textContent = `${new Date().toLocaleTimeString()} — ${text}`;
+  el.prepend(d);
+}
+
+// ─── Connect wallet ──────────────────────────────────────────────────────────
+async function connectWallet() {
+  if (!window.ethereum) { logLine("No wallet found — install MetaMask.", "warn"); return; }
+  try {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    myAddress = await signer.getAddress();
+    const network = await provider.getNetwork();
+    
+    document.getElementById("accountDisplay").textContent = `${short(myAddress)} (${network.name || "Chain " + network.chainId})`;
+    document.getElementById("accountDisplay").style.display = "inline-block";
+    logLine(`Wallet connected: ${myAddress} on ${network.name || "Chain " + network.chainId}`, "ok");
+    
+    // Auto-load contract if address is pre-filled
+    const addr = document.getElementById("contractAddress").value.trim();
+    if (addr && ethers.isAddress(addr)) {
+      await loadContract(addr);
+    }
+  } catch(e) { logLine("Connection failed: " + e.message, "warn"); }
+}
+
+document.getElementById("connectBtn").onclick = connectWallet;
+
+// ─── Listen for MetaMask account & network changes ───────────────────────────
+if (window.ethereum) {
+  window.ethereum.on("accountsChanged", async (accounts) => {
+    if (accounts.length > 0 && provider) {
+      signer = await provider.getSigner();
+      myAddress = await signer.getAddress();
+      const network = await provider.getNetwork();
+      document.getElementById("accountDisplay").textContent = `${short(myAddress)} (${network.name || "Chain " + network.chainId})`;
+      logLine("Account switched to: " + myAddress, "ok");
+      if (escrow) {
+        await refresh();
+        await detectRole();
+      }
+    } else {
+      window.location.reload();
+    }
+  });
+
+  window.ethereum.on("chainChanged", () => {
+    window.location.reload();
+  });
+}
+
+// ─── Load contract ───────────────────────────────────────────────────────────
+async function loadContract(addr) {
+  if (!addr) addr = document.getElementById("contractAddress").value.trim();
+  if (!addr || !ethers.isAddress(addr)) { logLine("Enter a valid contract address first.", "warn"); return; }
+  if (!signer) { logLine("Connect your wallet first.", "warn"); return; }
+  try {
+    escrow = new ethers.Contract(addr, ESCROW_ABI, signer);
+    await refresh();
+    await loadHistory();
+    wireEvents();
+    logLine("Contract loaded: " + addr, "ok");
+  } catch(e) { logLine("Load failed: " + e.message, "warn"); }
+}
+
+document.getElementById("loadBtn").onclick = () => loadContract();
+
+// ─── Refresh all UI data ─────────────────────────────────────────────────────
+async function refresh() {
+  if (!escrow) return;
+  try {
+    const [
+      buyerAddr, sellerAddr,
+      a0, a1, a2,
+      amt, deadline, state,
+      vseller, vbuyer, fee
+    ] = await Promise.all([
+      escrow.buyer(), escrow.seller(),
+      escrow.arbiters(0), escrow.arbiters(1), escrow.arbiters(2),
+      escrow.amount(), escrow.deliveryDeadline(), escrow.currentState(),
+      escrow.votesForSeller(), escrow.votesForBuyer(), escrow.arbiterFeeBps()
+    ]);
+
+    document.getElementById("buyerAddr").textContent   = short(buyerAddr);
+    document.getElementById("sellerAddr").textContent  = short(sellerAddr);
+    document.getElementById("arbiter1Addr").textContent = short(a0);
+    document.getElementById("arbiter2Addr").textContent = short(a1);
+    document.getElementById("arbiter3Addr").textContent = short(a2);
+    document.getElementById("feeText").textContent = fee + " bps (" + (Number(fee)/100).toFixed(1) + "%)";
+    document.getElementById("amountText").textContent  = fmtEth(amt);
+    document.getElementById("deadlineText").textContent =
+      deadline > 0n ? new Date(Number(deadline)*1000).toLocaleString() : "—";
+
+    // State pill + dot
+    const stNum = Number(state);
+    document.getElementById("stateText").textContent = STATE_LABELS[stNum] || "Unknown";
+    const dot = document.getElementById("stateDot");
+    dot.className = "dot " + (STATE_DOT_CLASS[stNum] || "");
+
+    // State diagram highlight
+    for (let i = 0; i < 5; i++) {
+      document.getElementById("sd"+i).classList.toggle("active", i === stNum);
+    }
+
+    // Vote bar (shown only in DISPUTED state)
+    const isDisputed = stNum === 3;
+    document.getElementById("voteBarWrap").style.display = isDisputed ? "block" : "none";
+    if (isDisputed) {
+      document.getElementById("voteForSellerCount").textContent = "Seller: " + vseller;
+      document.getElementById("voteForBuyerCount").textContent  = "Buyer: " + vbuyer;
+      const pct = (Number(vseller) / 3) * 100;
+      document.getElementById("voteBarFill").style.width = pct + "%";
+    }
+
+    // Live balances
+    document.getElementById("balancesWrap").style.display = "grid";
+    const [bb, sb, cb] = await Promise.all([
+      provider.getBalance(buyerAddr),
+      provider.getBalance(sellerAddr),
+      provider.getBalance(await escrow.getAddress())
+    ]);
+    document.getElementById("buyerBal").textContent    = fmtEth(bb);
+    document.getElementById("sellerBal").textContent   = fmtEth(sb);
+    document.getElementById("contractBal").textContent = fmtEth(cb);
+
+    // Role detection + state-aware buttons
+    if (myAddress) await detectRole();
+    updateButtonStates(stNum);
+
+    // Check if current arbiter has voted
+    if (myAddress) {
+      const voted = await escrow.hasVoted(myAddress);
+      document.getElementById("alreadyVotedMsg").style.display = voted ? "block" : "none";
+      document.getElementById("voteSellerBtn").disabled = voted || stNum !== 3;
+      document.getElementById("voteBuyerBtn").disabled  = voted || stNum !== 3;
+    }
+  } catch(e) { logLine("Refresh error: " + e.message, "warn"); }
+}
+
+// ─── Role auto-detection ─────────────────────────────────────────────────────
+async function detectRole() {
+  if (!myAddress || !escrow) return;
+  try {
+    const [buyerAddr, sellerAddr, isArb] = await Promise.all([
+      escrow.buyer(), escrow.seller(), escrow.isArbiter(myAddress)
+    ]);
+    let role = null;
+    if (myAddress.toLowerCase() === buyerAddr.toLowerCase())  role = "buyer";
+    else if (myAddress.toLowerCase() === sellerAddr.toLowerCase()) role = "seller";
+    else if (isArb) role = "arbiter";
+    if (role) switchRole(role);
+  } catch(e) {}
+}
+
+// ─── State-aware button enabling ─────────────────────────────────────────────
+function updateButtonStates(stNum) {
+  document.getElementById("depositBtn").disabled      = stNum !== 0;
+  document.getElementById("confirmBtn").disabled      = stNum !== 1;
+  document.getElementById("disputeBtnBuyer").disabled = stNum !== 1;
+  document.getElementById("disputeBtnSeller").disabled= stNum !== 1;
+  document.getElementById("refundBtn").disabled       = stNum !== 1;
+  document.getElementById("voteSellerBtn").disabled   = stNum !== 3;
+  document.getElementById("voteBuyerBtn").disabled    = stNum !== 3;
+}
+
+// ─── Role tab switching ──────────────────────────────────────────────────────
+document.querySelectorAll(".role-tab").forEach(tab => {
+  tab.onclick = () => switchRole(tab.dataset.role);
+});
+
+function switchRole(role) {
+  activeRole = role;
+  ["buyer","seller","arbiter"].forEach(r => {
+    const t = document.getElementById("tab" + r.charAt(0).toUpperCase() + r.slice(1));
+    t.className = "role-tab" + (r === role ? " active-"+r : "");
+    document.getElementById(r + "Actions").style.display = r === role ? "flex" : "none";
+  });
+}
+
+// Default tab shown
+switchRole("buyer");
+
+// ─── Transaction sender ──────────────────────────────────────────────────────
+async function runTx(label, fn) {
+  logLine(label + " — sent, waiting…");
+  try {
+    const tx = await fn();
+    await tx.wait();
+    logLine(label + " — confirmed ✅", "ok");
+    await refresh();
+    await loadHistory();
+  } catch(e) {
+    logLine(label + " failed: " + (e.reason || e.message), "warn");
+  }
+}
+
+// ─── Button handlers ──────────────────────────────────────────────────────────
+document.getElementById("depositBtn").onclick = () => {
+  const val = document.getElementById("depositAmount").value.trim();
+  runTx("Deposit " + val + " ETH", () => escrow.deposit({ value: ethers.parseEther(val || "0") }));
+};
+document.getElementById("confirmBtn").onclick       = () => runTx("Confirm Delivery",       () => escrow.confirmDelivery());
+document.getElementById("disputeBtnBuyer").onclick  = () => runTx("Raise Dispute (buyer)",  () => escrow.raiseDispute());
+document.getElementById("disputeBtnSeller").onclick = () => runTx("Raise Dispute (seller)", () => escrow.raiseDispute());
+document.getElementById("refundBtn").onclick        = () => runTx("Timeout Refund",         () => escrow.refundAfterTimeout());
+document.getElementById("voteSellerBtn").onclick    = () => runTx("Vote: Release to Seller",() => escrow.castVote(true));
+document.getElementById("voteBuyerBtn").onclick     = () => runTx("Vote: Refund Buyer",     () => escrow.castVote(false));
+
+// ─── Real-time event listeners ───────────────────────────────────────────────
+function wireEvents() {
+  escrow.on("FundsDeposited", (buyer, amount, deadline) => {
+    logLine(`FundsDeposited — ${fmtEth(amount)} locked by ${short(buyer)}`, "ok");
+    refresh(); loadHistory();
+  });
+  escrow.on("DeliveryConfirmed", (buyer, seller, amount) => {
+    logLine(`Delivery Confirmed — ${fmtEth(amount)} released to seller ${short(seller)}`, "ok");
+    refresh(); loadHistory();
+  });
+  escrow.on("DisputeRaised", (by) => {
+    logLine(`Dispute Raised by ${short(by)}`, "warn");
+    refresh(); loadHistory();
+  });
+  escrow.on("ArbiterVoteCast", (arb, forSeller, vs, vb) => {
+    logLine(`Arbiter ${short(arb)} voted ${forSeller ? "Seller" : "Buyer"} — tally: ${vs}-${vb}`, "ok");
+    refresh(); loadHistory();
+  });
+  escrow.on("DisputeResolved", (toSeller, payout, fee) => {
+    logLine(`Dispute Resolved — ${toSeller ? "Seller" : "Buyer"} wins ${fmtEth(payout)} (fee: ${fmtEth(fee)})`, "ok");
+    refresh(); loadHistory();
+  });
+  escrow.on("RefundedAfterTimeout", (buyer, amount) => {
+    logLine(`Timeout Refund — ${fmtEth(amount)} returned to ${short(buyer)}`, "ok");
+    refresh(); loadHistory();
+  });
+}
+
+// ─── On-chain event history table ────────────────────────────────────────────
+async function loadHistory() {
+  if (!escrow) return;
+  try {
+    const filters = [
+      { filter: escrow.filters.FundsDeposited(),    type: "deposited" },
+      { filter: escrow.filters.DeliveryConfirmed(), type: "confirmed" },
+      { filter: escrow.filters.DisputeRaised(),     type: "disputed"  },
+      { filter: escrow.filters.ArbiterVoteCast(),   type: "vote"      },
+      { filter: escrow.filters.DisputeResolved(),   type: "resolved"  },
+      { filter: escrow.filters.RefundedAfterTimeout(), type: "refunded" },
+    ];
+
+    let rows = [];
+    for (const {filter, type} of filters) {
+      const events = await escrow.queryFilter(filter);
+      for (const ev of events) {
+        let detail = "", amount = "—";
+        if (type === "deposited") {
+          amount = fmtEth(ev.args.amount);
+          detail = "by " + short(ev.args.buyer);
+        } else if (type === "confirmed") {
+          amount = fmtEth(ev.args.amount);
+          detail = "→ " + short(ev.args.seller);
+        } else if (type === "disputed") {
+          detail = "by " + short(ev.args.raisedBy);
+        } else if (type === "vote") {
+          detail = short(ev.args.arbiter) + " → " + (ev.args.voteForSeller ? "Seller" : "Buyer");
+          detail += ` (${ev.args.votesForSeller}-${ev.args.votesForBuyer})`;
+        } else if (type === "resolved") {
+          amount = fmtEth(ev.args.winnerPayout);
+          detail = ev.args.releasedToSeller ? "Seller wins" : "Buyer refunded";
+        } else if (type === "refunded") {
+          amount = fmtEth(ev.args.amount);
+          detail = "→ " + short(ev.args.buyer);
+        }
+        rows.push({ block: ev.blockNumber, type, amount, detail });
+      }
+    }
+    rows.sort((a,b) => b.block - a.block);
+
+    const tbody = document.getElementById("txTableBody");
+    tbody.innerHTML = "";
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${r.block}</td>
+        <td><span class="tx-badge ${r.type}">${r.type}</span></td>
+        <td>${r.amount}</td>
+        <td>${r.detail}</td>`;
+      tbody.appendChild(tr);
+    }
+    document.getElementById("txTableWrap").style.display = rows.length ? "block" : "none";
+  } catch(e) { /* history unavailable on fresh deploy */ }
+}
+</script>
+</body>
+</html>
