@@ -243,6 +243,7 @@
     <div class="connect-col">
       <button class="primary" id="connectBtn">Connect Wallet</button>
       <div class="account-pill" id="accountDisplay" style="display:none"></div>
+      <button class="danger" id="switchNetworkBtn" style="display:none; font-size:11px; padding:6px 12px; margin-top:6px; cursor:pointer;">⚠️ Switch to Hardhat Local (31337)</button>
     </div>
   </div>
 
@@ -250,7 +251,7 @@
   <div class="setup-bar">
     <div class="field">
       <label>Deployed contract address</label>
-      <input id="contractAddress" value="0xAa565E4b6a06852d4D1690DaEe34C29C734E9B66" placeholder="0x…" />
+      <input id="contractAddress" value="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512" placeholder="0x…" />
     </div>
     <button id="loadBtn" style="flex-shrink:0; padding:11px 22px;">Load Contract</button>
   </div>
@@ -495,6 +496,18 @@ async function connectWallet() {
     document.getElementById("accountDisplay").style.display = "inline-block";
     logLine(`Wallet connected: ${myAddress} on ${network.name || "Chain " + network.chainId}`, "ok");
     
+    // Check network - Hardhat is 31337n, Sepolia is 11155111n
+    const switchBtn = document.getElementById("switchNetworkBtn");
+    if (network.chainId !== 31337n && network.chainId !== 11155111n) {
+      if (switchBtn) {
+        switchBtn.style.display = "inline-block";
+        switchBtn.textContent = `⚠️ On ${network.name || 'Chain ' + network.chainId} — Click to Switch to Hardhat Local (31337)`;
+      }
+      logLine(`⚠️ Warning: You are connected to ${network.name || 'Chain ' + network.chainId}. The local contract is on Hardhat Local (31337). Click the red button above or switch in MetaMask!`, "warn");
+    } else {
+      if (switchBtn) switchBtn.style.display = "none";
+    }
+
     // Auto-load contract if address is pre-filled
     const addr = document.getElementById("contractAddress").value.trim();
     if (addr && ethers.isAddress(addr)) {
@@ -504,6 +517,37 @@ async function connectWallet() {
 }
 
 document.getElementById("connectBtn").onclick = connectWallet;
+
+// Switch network helper
+async function switchToHardhat() {
+  if (!window.ethereum) return;
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0x7a69" }], // 31337 in hex
+    });
+  } catch (err) {
+    if (err.code === 4902) {
+      try {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0x7a69",
+            chainName: "Hardhat Local",
+            rpcUrls: ["http://127.0.0.1:8545"],
+            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }
+          }]
+        });
+      } catch(addErr) {
+        logLine("Failed to add Hardhat network: " + addErr.message, "warn");
+      }
+    } else {
+      logLine("Failed to switch network: " + err.message, "warn");
+    }
+  }
+}
+const switchBtnEl = document.getElementById("switchNetworkBtn");
+if (switchBtnEl) switchBtnEl.onclick = switchToHardhat;
 
 // ─── Listen for MetaMask account & network changes ───────────────────────────
 if (window.ethereum) {
