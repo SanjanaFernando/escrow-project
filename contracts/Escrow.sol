@@ -2,14 +2,17 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 /// @title  Smart Contract Fund Escrow (Enhanced — EC8204 Group Project)
 /// @author EC8204 Group Project, University of Ruhuna
 /// @notice Holds a buyer's funds until agreed conditions are met, then releases
 ///         them automatically to the seller or back to the buyer based on:
 ///         (a) buyer confirmation of delivery,
-///         (b) a 2-of-3 majority arbiter vote, or
-///         (c) a timeout refund if the seller never delivers.
+///         (b) off-chain EIP-712 signed delivery receipt from buyer,
+///         (c) a 2-of-3 majority arbiter vote, or
+///         (d) a timeout refund if the seller never delivers.
 ///
 /// @dev    Security design highlights (for the Cyber Security half of EC8204):
 ///
@@ -48,8 +51,12 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         - Fee is expressed in basis points (1 bp = 0.01%) and capped at 10% (1000 bps).
 ///           It is deducted only on the dispute path, split equally among all three
 ///           arbiters regardless of how they voted.
+///
+///         CRYPTOGRAPHIC DELIVERY & EVIDENCE ATTESTATION
+///         - EIP-712 typed structured data signing allows gasless buyer delivery receipts.
+///         - IPFS decentralized evidence registry anchors tamper-proof CIDs during disputes.
 
-contract Escrow is ReentrancyGuard {
+contract Escrow is ReentrancyGuard, EIP712 {
 
     // ─── State Machine ────────────────────────────────────────────────────────
 
@@ -162,6 +169,41 @@ contract Escrow is ReentrancyGuard {
     /// @param amount Amount refunded in wei.
     event RefundedAfterTimeout(address indexed buyer, uint256 amount);
 
+    /// @notice Emitted when the seller claims funds using an off-chain EIP-712 buyer signature.
+    event DeliveryClaimedWithSignature(
+        address indexed buyer,
+        address indexed seller,
+        uint256 amount,
+        uint256 nonce
+    );
+
+    /// @notice Emitted when an evidentiary IPFS document is attached to a dispute.
+    event EvidenceSubmitted(
+        address indexed submitter,
+        string ipfsCID,
+        string description,
+        uint256 timestamp
+    );
+
+    // ─── EIP-712 & IPFS Evidence Storage ─────────────────────────────────────
+
+    /// @notice EIP-712 typehash for off-chain buyer signed delivery receipts.
+    bytes32 public constant DELIVERY_RECEIPT_TYPEHASH =
+        keccak256("DeliveryReceipt(address escrowContract,address seller,uint256 amount,uint256 nonce)");
+
+    /// @notice Replay protection nonces for EIP-712 signatures.
+    mapping(address => uint256) public nonces;
+
+    struct Evidence {
+        address submitter;
+        string ipfsCID;
+        string description;
+        uint256 timestamp;
+    }
+
+    /// @notice Registry of all tamper-proof evidence items submitted during a dispute.
+    Evidence[] public evidenceList;
+
     // ─── Modifiers ────────────────────────────────────────────────────────────
 
     /// @dev Reverts unless the caller is the buyer.
@@ -219,7 +261,7 @@ contract Escrow is ReentrancyGuard {
         address[3] memory _arbiters,
         uint256 _deliveryPeriod,
         uint256 _arbiterFeeBps
-    ) {
+    ) EIP712("EscrowDeliveryVault", "1.0.0") {
         require(_seller != address(0), "Escrow: seller is zero address");
         require(_seller != msg.sender, "Escrow: buyer and seller must differ");
         require(_deliveryPeriod > 0, "Escrow: delivery period must be positive");
@@ -274,6 +316,43 @@ contract Escrow is ReentrancyGuard {
         emit DeliveryConfirmed(buyer, seller, payout);
     }
 
+    /// @notice Allows the seller (or a relayer) to claim escrowed funds by presenting
+    ///         an off-chain EIP-712 cryptographic signature signed by the buyer.
+    ///         Follows Checks-Effects-Interactions (CEI) to eliminate reentrancy exploits.
+    /// @param signature 65-byte ECDSA signature produced by buyer via eth_signTypedData_v4.
+    function claimDeliveryWithSignature(bytes calldata signature)
+        external
+        inState(State.AWAITING_DELIVERY)
+        nonReentrant
+    {
+        uint256 currentNonce = nonces[buyer];
+        bytes32 structHash = keccak256(
+            abi.encode(
+                DELIVERY_RECEIPT_TYPEHASH,
+                address(this),
+                seller,
+                amount,
+                currentNonce
+            )
+        );
+
+        bytes32 digest = _hashTypedDataV4(structHash);
+        address recoveredSigner = ECDSA.recover(digest, signature);
+        require(recoveredSigner == buyer, "Escrow: invalid delivery signature from buyer");
+
+        nonces[buyer]++; // Replay protection: increment nonce
+
+        uint256 payout = amount;
+        currentState = State.COMPLETE; // Effect before interaction (CEI)
+        amount = 0;
+
+        (bool success, ) = seller.call{value: payout}("");
+        require(success, "Escrow: transfer to seller failed");
+
+        emit DeliveryConfirmed(buyer, seller, payout);
+        emit DeliveryClaimedWithSignature(buyer, seller, payout, currentNonce);
+    }
+
     /// @notice Buyer or seller escalates a disagreement to the arbiter panel.
     /// @dev    Transitions: AWAITING_DELIVERY → DISPUTED.
     ///         The `onlyParty` modifier restricts this to buyer and seller only —
@@ -282,6 +361,48 @@ contract Escrow is ReentrancyGuard {
     function raiseDispute() external onlyParty inState(State.AWAITING_DELIVERY) {
         currentState = State.DISPUTED;
         emit DisputeRaised(msg.sender);
+    }
+
+    /// @notice Buyer or seller anchors an immutable IPFS document CID during a dispute.
+    /// @param _ipfsCID The IPFS Content Identifier (CIDv0 or CIDv1).
+    /// @param _description Human-readable note summarizing the attached document.
+    function submitEvidence(string calldata _ipfsCID, string calldata _description)
+        external
+        onlyParty
+        inState(State.DISPUTED)
+    {
+        require(bytes(_ipfsCID).length > 0, "Escrow: IPFS CID cannot be empty");
+        require(bytes(_description).length > 0, "Escrow: description cannot be empty");
+
+        evidenceList.push(Evidence({
+            submitter: msg.sender,
+            ipfsCID: _ipfsCID,
+            description: _description,
+            timestamp: block.timestamp
+        }));
+
+        emit EvidenceSubmitted(msg.sender, _ipfsCID, _description, block.timestamp);
+    }
+
+    /// @notice Returns the total count of submitted evidence items.
+    function getEvidenceCount() external view returns (uint256) {
+        return evidenceList.length;
+    }
+
+    /// @notice Returns an evidence item by its index.
+    function getEvidence(uint256 index)
+        external
+        view
+        returns (
+            address submitter,
+            string memory ipfsCID,
+            string memory description,
+            uint256 timestamp
+        )
+    {
+        require(index < evidenceList.length, "Escrow: evidence index out of bounds");
+        Evidence storage e = evidenceList[index];
+        return (e.submitter, e.ipfsCID, e.description, e.timestamp);
     }
 
     /// @notice If the seller never delivers and the deadline passes, the buyer

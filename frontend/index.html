@@ -226,6 +226,8 @@
   .tx-badge.resolved   { color: var(--violet); }
   .tx-badge.refunded   { color: var(--cream-dim); }
   .tx-badge.vote       { color: var(--violet); }
+  .tx-badge.claimed    { color: var(--teal); }
+  .tx-badge.evidence   { color: var(--brass); }
 </style>
 </head>
 <body>
@@ -241,6 +243,7 @@
     <div class="connect-col">
       <button class="primary" id="connectBtn">Connect Wallet</button>
       <div class="account-pill" id="accountDisplay" style="display:none"></div>
+      <button class="danger" id="switchNetworkBtn" style="display:none; font-size:11px; padding:6px 12px; margin-top:6px; cursor:pointer;">⚠️ Switch to Hardhat Local (31337)</button>
     </div>
   </div>
 
@@ -248,7 +251,7 @@
   <div class="setup-bar">
     <div class="field">
       <label>Deployed contract address</label>
-      <input id="contractAddress" value="0xAa565E4b6a06852d4D1690DaEe34C29C734E9B66" placeholder="0x…" />
+      <input id="contractAddress" value="0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512" placeholder="0x…" />
     </div>
     <button id="loadBtn" style="flex-shrink:0; padding:11px 22px;">Load Contract</button>
   </div>
@@ -338,16 +341,31 @@
         <input id="depositAmount" placeholder="Amount in ETH  e.g. 1.0" />
         <button class="primary" id="depositBtn">💰 Deposit Funds</button>
         <button class="teal"    id="confirmBtn">✅ Confirm Delivery (release to seller)</button>
+        
+        <!-- EIP-712 Gasless Attestation -->
+        <div style="border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:10px 0; margin:4px 0;">
+          <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--cream-dim); margin-bottom:6px;">Gasless Off-Chain Attestation (EIP-712)</div>
+          <button class="primary" id="signDeliveryBtn" style="width:100%;">✍️ Sign Delivery Receipt (Gasless)</button>
+          <div id="buyerSigDisplay" style="display:none; margin-top:8px; font-family:'IBM Plex Mono',monospace; font-size:10px; background:var(--panel-3); padding:8px 10px; border-radius:6px; word-break:break-all; color:var(--teal); line-height:1.4;"></div>
+        </div>
+
         <button class="danger"  id="disputeBtnBuyer">⚠️ Raise Dispute</button>
         <button class="danger"  id="refundBtn">⏱ Reclaim After Deadline</button>
       </div>
 
       <!-- Seller actions -->
       <div class="actions" id="sellerActions" style="display:none;">
+        <!-- Claim with Signature -->
+        <div style="border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:4px;">
+          <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--cream-dim); margin-bottom:6px;">Claim via Buyer EIP-712 Signature</div>
+          <input id="sellerSignatureInput" placeholder="Paste Buyer's Signature (0x...)" style="margin-bottom:8px;" />
+          <button class="teal" id="claimWithSigBtn" style="width:100%;">⚡ Claim Payout via Signature</button>
+        </div>
+
         <button class="danger" id="disputeBtnSeller">⚠️ Raise Dispute</button>
         <p class="actions-hint">
           The seller has no direct release power — funds only move on buyer
-          confirmation, a 2-of-3 arbiter ruling, or a timeout refund.
+          confirmation, valid off-chain EIP-712 receipt, a 2-of-3 arbiter ruling, or a timeout refund.
           This design prevents seller-side fraud.
         </p>
       </div>
@@ -363,6 +381,25 @@
         </div>
         <button class="violet" id="voteSellerBtn">⚖️ Vote: Release to Seller</button>
         <button class="danger" id="voteBuyerBtn">⚖️ Vote: Refund Buyer</button>
+      </div>
+
+      <!-- Decentralized IPFS Evidence Registry -->
+      <div class="card" id="evidenceSection" style="margin-top:18px; padding:16px; background:var(--panel-2); border-radius:var(--radius-sm);">
+        <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <span>📦 Decentralized IPFS Evidence</span>
+          <span class="tx-badge disputed" id="evidenceCountBadge">0 records</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;" id="evidenceForm">
+          <input id="evidenceCidInput" placeholder="IPFS CID (e.g. QmXoypizj... or bafy...)" />
+          <input id="evidenceDescInput" placeholder="Evidence description (e.g. Courier Tracking PDF, Inspection Photo)" />
+          <button class="primary" id="submitEvidenceBtn" style="font-size:12px; padding:9px;">📁 Submit Proof to IPFS Registry</button>
+        </div>
+        <div id="evidenceTableWrap" style="display:none; max-height:160px; overflow-y:auto; margin-top:8px;">
+          <table class="tx-table">
+            <thead><tr><th>By</th><th>Note</th><th>IPFS Proof</th><th>Time</th></tr></thead>
+            <tbody id="evidenceTableBody"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Log -->
@@ -404,16 +441,23 @@ const ESCROW_ABI = [
   // Actions
   "function deposit() payable",
   "function confirmDelivery()",
+  "function claimDeliveryWithSignature(bytes signature)",
   "function raiseDispute()",
   "function castVote(bool voteForSeller)",
   "function refundAfterTimeout()",
+  "function submitEvidence(string ipfsCID, string description)",
   // Views
   "function getDetails() view returns (address,address,address[3],uint256,uint256,uint8,uint8,uint8)",
   "function isRegisteredArbiter(address) view returns (bool)",
+  "function nonces(address) view returns (uint256)",
+  "function getEvidenceCount() view returns (uint256)",
+  "function getEvidence(uint256) view returns (address,string,string,uint256)",
   // Events
   "event FundsDeposited(address indexed buyer, uint256 amount, uint256 deliveryDeadline)",
   "event DeliveryConfirmed(address indexed buyer, address indexed seller, uint256 amount)",
+  "event DeliveryClaimedWithSignature(address indexed buyer, address indexed seller, uint256 amount, uint256 nonce)",
   "event DisputeRaised(address indexed raisedBy)",
+  "event EvidenceSubmitted(address indexed submitter, string ipfsCID, string description, uint256 timestamp)",
   "event ArbiterVoteCast(address indexed arbiter, bool voteForSeller, uint8 votesForSeller, uint8 votesForBuyer)",
   "event DisputeResolved(bool releasedToSeller, uint256 winnerPayout, uint256 totalArbiterFee)",
   "event ArbiterFeePaid(address indexed arbiter, uint256 fee)",
@@ -452,6 +496,18 @@ async function connectWallet() {
     document.getElementById("accountDisplay").style.display = "inline-block";
     logLine(`Wallet connected: ${myAddress} on ${network.name || "Chain " + network.chainId}`, "ok");
     
+    // Check network - Hardhat is 31337n, Sepolia is 11155111n
+    const switchBtn = document.getElementById("switchNetworkBtn");
+    if (network.chainId !== 31337n && network.chainId !== 11155111n) {
+      if (switchBtn) {
+        switchBtn.style.display = "inline-block";
+        switchBtn.textContent = `⚠️ On ${network.name || 'Chain ' + network.chainId} — Click to Switch to Hardhat Local (31337)`;
+      }
+      logLine(`⚠️ Warning: You are connected to ${network.name || 'Chain ' + network.chainId}. The local contract is on Hardhat Local (31337). Click the red button above or switch in MetaMask!`, "warn");
+    } else {
+      if (switchBtn) switchBtn.style.display = "none";
+    }
+
     // Auto-load contract if address is pre-filled
     const addr = document.getElementById("contractAddress").value.trim();
     if (addr && ethers.isAddress(addr)) {
@@ -461,6 +517,37 @@ async function connectWallet() {
 }
 
 document.getElementById("connectBtn").onclick = connectWallet;
+
+// Switch network helper
+async function switchToHardhat() {
+  if (!window.ethereum) return;
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0x7a69" }], // 31337 in hex
+    });
+  } catch (err) {
+    if (err.code === 4902) {
+      try {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0x7a69",
+            chainName: "Hardhat Local",
+            rpcUrls: ["http://127.0.0.1:8545"],
+            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 }
+          }]
+        });
+      } catch(addErr) {
+        logLine("Failed to add Hardhat network: " + addErr.message, "warn");
+      }
+    } else {
+      logLine("Failed to switch network: " + err.message, "warn");
+    }
+  }
+}
+const switchBtnEl = document.getElementById("switchNetworkBtn");
+if (switchBtnEl) switchBtnEl.onclick = switchToHardhat;
 
 // ─── Listen for MetaMask account & network changes ───────────────────────────
 if (window.ethereum) {
@@ -494,6 +581,7 @@ async function loadContract(addr) {
     escrow = new ethers.Contract(addr, ESCROW_ABI, signer);
     await refresh();
     await loadHistory();
+    await loadEvidence();
     wireEvents();
     logLine("Contract loaded: " + addr, "ok");
   } catch(e) { logLine("Load failed: " + e.message, "warn"); }
@@ -570,6 +658,7 @@ async function refresh() {
       document.getElementById("voteSellerBtn").disabled = voted || stNum !== 3;
       document.getElementById("voteBuyerBtn").disabled  = voted || stNum !== 3;
     }
+    await loadEvidence();
   } catch(e) { logLine("Refresh error: " + e.message, "warn"); }
 }
 
@@ -592,11 +681,14 @@ async function detectRole() {
 function updateButtonStates(stNum) {
   document.getElementById("depositBtn").disabled      = stNum !== 0;
   document.getElementById("confirmBtn").disabled      = stNum !== 1;
+  document.getElementById("signDeliveryBtn").disabled = stNum !== 1;
   document.getElementById("disputeBtnBuyer").disabled = stNum !== 1;
+  document.getElementById("claimWithSigBtn").disabled = stNum !== 1;
   document.getElementById("disputeBtnSeller").disabled= stNum !== 1;
   document.getElementById("refundBtn").disabled       = stNum !== 1;
   document.getElementById("voteSellerBtn").disabled   = stNum !== 3;
   document.getElementById("voteBuyerBtn").disabled    = stNum !== 3;
+  document.getElementById("submitEvidenceBtn").disabled = stNum !== 3;
 }
 
 // ─── Role tab switching ──────────────────────────────────────────────────────
@@ -636,11 +728,121 @@ document.getElementById("depositBtn").onclick = () => {
   runTx("Deposit " + val + " ETH", () => escrow.deposit({ value: ethers.parseEther(val || "0") }));
 };
 document.getElementById("confirmBtn").onclick       = () => runTx("Confirm Delivery",       () => escrow.confirmDelivery());
+
+// Gasless Buyer EIP-712 Signature
+document.getElementById("signDeliveryBtn").onclick = async () => {
+  if (!signer || !escrow) { logLine("Connect wallet and load contract first", "warn"); return; }
+  try {
+    logLine("Signing off-chain EIP-712 delivery receipt (gasless)…");
+    const escrowAddr = await escrow.getAddress();
+    const network = await provider.getNetwork();
+    const sellerAddr = await escrow.seller();
+    const amount = await escrow.amount();
+    const buyerAddr = await escrow.buyer();
+    const nonce = await escrow.nonces(buyerAddr);
+
+    const domain = {
+      name: "EscrowDeliveryVault",
+      version: "1.0.0",
+      chainId: network.chainId,
+      verifyingContract: escrowAddr,
+    };
+
+    const types = {
+      DeliveryReceipt: [
+        { name: "escrowContract", type: "address" },
+        { name: "seller", type: "address" },
+        { name: "amount", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+      ],
+    };
+
+    const value = {
+      escrowContract: escrowAddr,
+      seller: sellerAddr,
+      amount: amount,
+      nonce: nonce,
+    };
+
+    const sig = await signer.signTypedData(domain, types, value);
+    logLine("EIP-712 receipt signed off-chain! (Gasless) ✅", "ok");
+
+    const disp = document.getElementById("buyerSigDisplay");
+    disp.style.display = "block";
+    disp.textContent = "Signature:\n" + sig;
+
+    const sellerInp = document.getElementById("sellerSignatureInput");
+    if (sellerInp) sellerInp.value = sig;
+  } catch(e) {
+    logLine("Signing failed: " + (e.reason || e.message), "warn");
+  }
+};
+
+// Seller claims payout via buyer's EIP-712 signature
+document.getElementById("claimWithSigBtn").onclick = () => {
+  const sig = document.getElementById("sellerSignatureInput").value.trim();
+  if (!sig) { logLine("Please enter or paste the buyer's EIP-712 signature", "warn"); return; }
+  runTx("Claim via Signature", () => escrow.claimDeliveryWithSignature(sig));
+};
+
 document.getElementById("disputeBtnBuyer").onclick  = () => runTx("Raise Dispute (buyer)",  () => escrow.raiseDispute());
 document.getElementById("disputeBtnSeller").onclick = () => runTx("Raise Dispute (seller)", () => escrow.raiseDispute());
+
+// Attach IPFS dispute evidence
+document.getElementById("submitEvidenceBtn").onclick = () => {
+  const cid = document.getElementById("evidenceCidInput").value.trim();
+  const desc = document.getElementById("evidenceDescInput").value.trim();
+  if (!cid) { logLine("Please provide an IPFS CID", "warn"); return; }
+  runTx("Submit IPFS Proof (" + cid.slice(0, 8) + "…)", () =>
+    escrow.submitEvidence(cid, desc || "Dispute evidence")
+  );
+};
+
 document.getElementById("refundBtn").onclick        = () => runTx("Timeout Refund",         () => escrow.refundAfterTimeout());
 document.getElementById("voteSellerBtn").onclick    = () => runTx("Vote: Release to Seller",() => escrow.castVote(true));
 document.getElementById("voteBuyerBtn").onclick     = () => runTx("Vote: Refund Buyer",     () => escrow.castVote(false));
+
+// ─── IPFS Evidence Loader ───────────────────────────────────────────────────
+async function loadEvidence() {
+  if (!escrow) return;
+  try {
+    const count = await escrow.getEvidenceCount();
+    const countNum = Number(count);
+    const badge = document.getElementById("evidenceCountBadge");
+    if (badge) badge.textContent = countNum + (countNum === 1 ? " record" : " records");
+
+    const tbody = document.getElementById("evidenceTableBody");
+    const wrap = document.getElementById("evidenceTableWrap");
+    if (!tbody || !wrap) return;
+
+    if (countNum === 0) {
+      tbody.innerHTML = "";
+      wrap.style.display = "none";
+      return;
+    }
+
+    tbody.innerHTML = "";
+    for (let i = 0; i < countNum; i++) {
+      const ev = await escrow.getEvidence(i);
+      const submitter = ev[0];
+      const cid = ev[1];
+      const desc = ev[2];
+      const ts = Number(ev[3]);
+      const dateStr = ts > 0 ? new Date(ts * 1000).toLocaleTimeString() : "—";
+      const ipfsUrl = `https://ipfs.io/ipfs/${cid}`;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><span class="tx-badge deposited" style="font-size:10px;">${short(submitter)}</span></td>
+        <td style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${desc}">${desc}</td>
+        <td><a href="${ipfsUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--teal); text-decoration:underline; font-family:'IBM Plex Mono',monospace; font-size:11px;">${short(cid)} ↗</a></td>
+        <td style="color:var(--cream-dim); font-size:11px;">${dateStr}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    wrap.style.display = "block";
+  } catch(e) { /* evidence not supported or network error */ }
+}
 
 // ─── Real-time event listeners ───────────────────────────────────────────────
 function wireEvents() {
@@ -652,8 +854,16 @@ function wireEvents() {
     logLine(`Delivery Confirmed — ${fmtEth(amount)} released to seller ${short(seller)}`, "ok");
     refresh(); loadHistory();
   });
+  escrow.on("DeliveryClaimedWithSignature", (buyer, seller, amount, nonce) => {
+    logLine(`Delivery Claimed with EIP-712 Signature — ${fmtEth(amount)} released to seller ${short(seller)} (nonce #${nonce})`, "ok");
+    refresh(); loadHistory();
+  });
   escrow.on("DisputeRaised", (by) => {
     logLine(`Dispute Raised by ${short(by)}`, "warn");
+    refresh(); loadHistory();
+  });
+  escrow.on("EvidenceSubmitted", (submitter, cid, desc, ts) => {
+    logLine(`IPFS Evidence Submitted by ${short(submitter)}: ${desc} [${short(cid)}]`, "ok");
     refresh(); loadHistory();
   });
   escrow.on("ArbiterVoteCast", (arb, forSeller, vs, vb) => {
@@ -675,12 +885,14 @@ async function loadHistory() {
   if (!escrow) return;
   try {
     const filters = [
-      { filter: escrow.filters.FundsDeposited(),    type: "deposited" },
-      { filter: escrow.filters.DeliveryConfirmed(), type: "confirmed" },
-      { filter: escrow.filters.DisputeRaised(),     type: "disputed"  },
-      { filter: escrow.filters.ArbiterVoteCast(),   type: "vote"      },
-      { filter: escrow.filters.DisputeResolved(),   type: "resolved"  },
-      { filter: escrow.filters.RefundedAfterTimeout(), type: "refunded" },
+      { filter: escrow.filters.FundsDeposited(),                type: "deposited" },
+      { filter: escrow.filters.DeliveryConfirmed(),             type: "confirmed" },
+      { filter: escrow.filters.DeliveryClaimedWithSignature(),  type: "claimed"   },
+      { filter: escrow.filters.DisputeRaised(),                 type: "disputed"  },
+      { filter: escrow.filters.EvidenceSubmitted(),             type: "evidence"  },
+      { filter: escrow.filters.ArbiterVoteCast(),               type: "vote"      },
+      { filter: escrow.filters.DisputeResolved(),               type: "resolved"  },
+      { filter: escrow.filters.RefundedAfterTimeout(),          type: "refunded"  },
     ];
 
     let rows = [];
@@ -694,8 +906,13 @@ async function loadHistory() {
         } else if (type === "confirmed") {
           amount = fmtEth(ev.args.amount);
           detail = "→ " + short(ev.args.seller);
+        } else if (type === "claimed") {
+          amount = fmtEth(ev.args.amount);
+          detail = "by " + short(ev.args.seller) + " (EIP-712 sig)";
         } else if (type === "disputed") {
           detail = "by " + short(ev.args.raisedBy);
+        } else if (type === "evidence") {
+          detail = short(ev.args.submitter) + ": " + ev.args.description;
         } else if (type === "vote") {
           detail = short(ev.args.arbiter) + " → " + (ev.args.voteForSeller ? "Seller" : "Buyer");
           detail += ` (${ev.args.votesForSeller}-${ev.args.votesForBuyer})`;
